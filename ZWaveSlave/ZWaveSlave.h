@@ -58,7 +58,7 @@ boolean g_sensor_state=false;
 #define ST_DATA      6
 #define ST_CRC       7
 #define ST_DONE      8
-
+#define MAX_VALUE 4
 class ZWaveSlave {
 private:  
   byte seq;          // Sequence number which is used to match the callback function
@@ -68,7 +68,7 @@ private:
   int cmd;           // the serial api command number of the current payload
   byte g_basic_level;
   byte payload[64];  // The data of the current packet
-  long learn_info_time,learn_stop_time;
+  unsigned long learn_info_time,learn_stop_time;
   int i;            
   unsigned long expire;  // The expire time of the last command
   void (*f)(byte *,int); // The callback function registered by callback
@@ -76,11 +76,16 @@ private:
   void (*switch_binary_handler)(byte v); // The callback function registered by callback
   void (*nodeinfo)(byte *payload,int len);
   bool hasSensorBinary;
+  bool hasSensorMultilevel;
   bool hasAssociation;
   byte generic,specific;
+  byte sensorNum;
+  byte sensorType[MAX_VALUE];
+  byte sensorPrecision[MAX_VALUE];
+  byte sensorScale[MAX_VALUE];
+  float sensorValue[MAX_VALUE];
 public:
   ZWaveSlave() {
-    byte buf[5];
     Serial2.begin(115200);
     Serial2.write(6);
     version();
@@ -119,6 +124,16 @@ public:
   void enableAssociation() {
   	hasAssociation = true;
   }
+  void enableMultilevelSensor(byte n) {
+  	hasSensorMultilevel = true;
+	sensorNum = n;
+	for(byte i=0;i<sensorNum;i++) {
+		sensorType[i] = 0;
+		sensorPrecision[i] = 0;
+		sensorScale[i] = 0;
+		sensorValue[i] = 0;
+	}
+  }
   /*
   void checkSensor() {
     boolean s = digitalRead(SENSOR_PORT);
@@ -133,6 +148,17 @@ public:
     }
   }
   */
+  void setupSensorType(byte i, byte pre, byte scale,byte type) {
+  	if (i < sensorNum) {
+	  	sensorType[i] = type;	
+		sensorPrecision[i] = pre;
+		sensorScale[i] = scale;
+	}
+  }
+  void updateMultilevelSensor(byte i, float v) {
+  	if (i < sensorNum)
+		sensorValue[i] = v;
+  }
   void updateBinarySensor(byte v) {
     if (v != g_basic_level) {
 	  	g_basic_level = v;
@@ -239,7 +265,6 @@ public:
     int k;
     byte crc;
     byte buf[24];
-    byte ll=l+7;
 
     Serial.write("Send\n");
     buf[0] = 1;
@@ -436,7 +461,7 @@ public:
           
         }
     } else if (cls == COMMAND_CLASS_ASSOCIATION) {
-      byte n;
+	  if (hasAssociation==false) return;
       switch(cmd) {
         case ASSOCIATION_GET:
 #ifdef EEPROM_h
@@ -475,9 +500,58 @@ public:
           break;
       }
     } else if (cls == COMMAND_CLASS_SENSOR_MULTILEVEL) {
+		if (hasSensorMultilevel==false) return;
+		byte i=0;
+
+		if (len > 2) {
+			byte t = command[2];
+			byte scale = (command[3]>>3)&0x3;
+			Serial.print("search ");
+			Serial.print(command[3]);
+			Serial.print(" ");
+			Serial.println(scale);
+			for(i=0;i<sensorNum;i++) {
+				Serial.print(sensorType[i]);
+				Serial.print(' ');
+				Serial.println(sensorScale[i]);
+				if (t == sensorType[i] && sensorScale[i] == scale ) break;
+			}
+			if (i == sensorNum) return;
+		}
+
         if (cmd == SENSOR_MULTILEVEL_GET) {
+			float v=sensorValue[i];
+			b[0] = COMMAND_CLASS_SENSOR_MULTILEVEL;
+			b[1] = SENSOR_MULTILEVEL_REPORT;
+			b[2] = sensorType[i];
+			for(byte j=0;j<sensorPrecision[i];j++) {
+				v = v * 10;
+			}
+			long l = v;
+			byte size=1;
+			if (l >= (1L<<15))
+				size = 4;
+			else if (l >= (1L<<7))
+				size = 2;
+
+			b[3] = (sensorPrecision[i]<< 5) | (sensorScale[i]<<3) | size;
+			if (size == 1) {
+				b[4] = l&0xff;
+            	send(src,b,5,5);
+			} else if (size == 2) {
+				b[4] = (l>>8)&0xff;
+				b[5] = (l)&0xff;
+            	send(src,b,6,5);
+			} else if (size == 4) {
+				b[4] = (l>>24)&0xff;
+				b[5] = (l>>16)&0xff;
+				b[6] = (l>>8)&0xff;
+				b[7] = (l)&0xff;
+            	send(src,b,8,5);
+			}
         }
     } else if (cls == COMMAND_CLASS_SENSOR_BINARY) {
+		if (hasSensorBinary==false) return;
         if (cmd == SENSOR_BINARY_GET) {
             b[0] = COMMAND_CLASS_SENSOR_BINARY;
             b[1] = SENSOR_BINARY_REPORT;
