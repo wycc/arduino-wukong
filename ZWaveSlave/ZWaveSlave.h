@@ -148,6 +148,18 @@ public:
     }
   }
   */
+  void sendToGroup(byte group, byte v) {
+        if (group == 1) {
+#ifdef EEPROM_h
+            byte src = EEPROM.read(EEPROM_GROUP1);
+	    byte b[3];
+	    b[0] = COMMAND_CLASS_BASIC;
+	    b[1] = BASIC_SET;
+	    b[2] = v+0xa0;
+	    send(src,b,3,5);
+#endif
+        }
+  }
   void setupSensorType(byte i, byte pre, byte scale,byte type) {
   	if (i < sensorNum) {
 	  	sensorType[i] = type;	
@@ -440,6 +452,8 @@ public:
     byte b[10];
     byte cls = command[0];
     byte cmd = command[1];
+    byte n;
+
     Serial.print("Receive command\n");
     Serial.println(cls);
     Serial.println(cmd);
