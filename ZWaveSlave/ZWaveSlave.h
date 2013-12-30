@@ -88,7 +88,7 @@ public:
   ZWaveSlave() {
     Serial2.begin(115200);
     Serial2.write(6);
-    version();
+    //version();
     for(i=0;i<100;i++)
       mainloop();
     randomSeed(analogRead(0));
@@ -432,6 +432,7 @@ public:
     b[7] = 3;
     b[8] = COMMAND_CLASS_SENSOR_BINARY;
 	ptr = 9;
+	b[ptr++] = COMMAND_CLASS_BASIC;
 	if (hasSensorBinary)
 	    b[ptr++] = COMMAND_CLASS_SENSOR_BINARY;
 	if (hasAssociation)
