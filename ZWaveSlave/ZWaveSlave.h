@@ -108,6 +108,12 @@ public:
 	generic = g;
 	specific = s;
     init_nodeinfo();
+    DDRK |= (1<<7);
+	PORTK &= ~(1<<7);
+	delay(100);
+	PORTK |= (1<<7);
+	DDRA &= ~(1<<1);
+	PORTA |= (1<<1);
   }
   int getType() {
     return type;
@@ -430,8 +436,7 @@ public:
     b[5] = generic;
     b[6] = 1;
     b[7] = 3;
-    b[8] = COMMAND_CLASS_SENSOR_BINARY;
-	ptr = 9;
+	ptr = 8;
 	b[ptr++] = COMMAND_CLASS_BASIC;
 	if (hasSensorBinary)
 	    b[ptr++] = COMMAND_CLASS_SENSOR_BINARY;
