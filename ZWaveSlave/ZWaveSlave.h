@@ -107,13 +107,13 @@ public:
   void init(byte g,byte s) {
 	generic = g;
 	specific = s;
-    init_nodeinfo();
     DDRK |= (1<<7);
 	PORTK &= ~(1<<7);
 	delay(100);
 	PORTK |= (1<<7);
 	DDRA &= ~(1<<1);
 	PORTA |= (1<<1);
+    init_nodeinfo();
   }
   int getType() {
     return type;
@@ -124,7 +124,7 @@ public:
     snprintf(buf,64,"Status=%d Node=%d Device=%d:%d:%d\n", payload[0],payload[1],payload[3],payload[4],payload[5]);
     Serial.write(buf);
   }
-  void enableSensorBinary() {
+  void enableBinarySensor() {
   	hasSensorBinary = true;
   }
   void enableAssociation() {
@@ -177,15 +177,16 @@ public:
   	if (i < sensorNum)
 		sensorValue[i] = v;
   }
-  void updateBinarySensor(byte v) {
-    if (v != g_basic_level) {
-	  	g_basic_level = v;
+  void updateBinarySensor(bool v) {
+	byte newv = v?255:0;
+    if (newv != g_basic_level) {
+	  	g_basic_level = newv;
 #ifdef EEPROM_h
       byte src = EEPROM.read(EEPROM_GROUP1);
       byte b[3];
       b[0] = COMMAND_CLASS_BASIC;
       b[1] = BASIC_SET;
-      b[2] = v? 0xff:0;
+      b[2] = g_basic_level;
       send(src,b,3,5);
 #endif
 	}
