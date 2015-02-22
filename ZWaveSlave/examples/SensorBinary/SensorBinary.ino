@@ -9,6 +9,7 @@ void setup()
     zwave.enableAssociation();
     pinMode(5,INPUT);
     digitalWrite(5, HIGH);
+    digitalWrite(4, HIGH);
 }
 
 void loop() 
