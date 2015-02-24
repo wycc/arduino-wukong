@@ -1,3 +1,4 @@
+// vim: ts=4 sw=4
 #ifndef __ZWAVESLAVE_H
 #define __ZWAVESLAVE_H
 #include "Arduino.h"
@@ -5,6 +6,7 @@
 //     Hardware specific definition
 /*****************************************/
 #define EEPROM_GROUP1 10
+#define EEPROM_CONF 20
 #define SENSOR_PORT 5
 
 boolean g_sensor_state=false;
@@ -17,6 +19,11 @@ boolean g_sensor_state=false;
 
 
 #define COMMAND_CLASS_BASIC 0x20
+#define COMMAND_CLASS_CONFIGURATION 0x70
+#define CONFIGURATION_SET 4
+#define CONFIGURATION_GET 5
+#define CONFIGURATION_REPORT 6
+#define CONFIGURATION_BULK_SET 7
 
 #define COMMAND_CLASS_ASSOCIATION 0x85
 #define ASSOCIATION_GET 2
@@ -84,6 +91,7 @@ private:
   byte sensorPrecision[MAX_VALUE];
   byte sensorScale[MAX_VALUE];
   float sensorValue[MAX_VALUE];
+  byte confNum;
 public:
   ZWaveSlave() {
     Serial2.begin(115200);
@@ -103,6 +111,7 @@ public:
 	learn_stop_time = 0;
 	hasSensorBinary = false;
 	hasAssociation = false;
+	confNum=0;
   }
   void init(byte g,byte s) {
 	generic = g;
@@ -126,6 +135,10 @@ public:
   }
   void enableBinarySensor() {
   	hasSensorBinary = true;
+  }
+  void enableConfiguration(byte num) {
+	if (num >= 0 && num < 32)
+	  	confNum = num;
   }
   void enableAssociation() {
   	hasAssociation = true;
@@ -217,8 +230,8 @@ public:
       expire = now + 1000;
       byte c = Serial2.read();
       char buf[128];
-      snprintf(buf,128,"c=%x state=%d\n", c, state);
-      Serial.write(buf);
+      snprintf(buf,128,"-> c=%x state=%d\n", c, state);
+      //Serial.write(buf);
       if (state == ST_SOF) {
         if (c == 1) {
           state = ST_LEN;
@@ -285,7 +298,7 @@ public:
     byte crc;
     byte buf[24];
 
-    Serial.write("Send\n");
+    //Serial.write("Send\n");
     buf[0] = 1;
     buf[1] = l+7;
     buf[2] = 0;
@@ -301,7 +314,7 @@ public:
     Serial2.write(buf[0]);
     for(k=0;k<l+7;k++) {
       Serial2.write(buf[k+1]);
-      Serial.println(buf[k+1]);
+      //Serial.println(buf[k+1]);
       crc = crc ^ buf[k+1];
     }
     seq++;
@@ -443,6 +456,10 @@ public:
 	    b[ptr++] = COMMAND_CLASS_SENSOR_BINARY;
 	if (hasAssociation)
 	    b[ptr++] = COMMAND_CLASS_ASSOCIATION;
+	if (hasSensorMultilevel)
+	    b[ptr++] = COMMAND_CLASS_SENSOR_MULTILEVEL;
+	if (confNum)
+	    b[ptr++] = COMMAND_CLASS_CONFIGURATION;
 	b[7] = ptr-8;
 	b[1] = ptr-1;
     b[ptr] = 0xff;
@@ -451,10 +468,46 @@ public:
 	}
     for(byte k=0;k<ptr+1;k++)
       Serial2.write(b[k]);
-	Serial.print("ptr=");
-	Serial.println(ptr);
+	//Serial.print("ptr=");
+	//Serial.println(ptr);
   }
   
+  void sendSensorReport(byte src,byte ch) {
+	byte b[10];
+	float v=sensorValue[ch];
+	b[0] = COMMAND_CLASS_SENSOR_MULTILEVEL;
+	b[1] = SENSOR_MULTILEVEL_REPORT;
+	b[2] = sensorType[ch];
+	for(byte j=0;j<sensorPrecision[ch];j++) {
+		v = v * 10;
+	}
+	if (src == 0) 
+		src = EEPROM.read(EEPROM_GROUP1);
+	long l = v;
+	byte size=1;
+	if (l >= (1L<<15))
+		size = 4;
+	else if (l >= (1L<<7))
+		size = 2;
+
+	b[3] = (sensorPrecision[ch]<< 5) | (sensorScale[ch]<<3) | size;
+	if (size == 1) {
+		b[4] = l&0xff;
+		send(src,b,5,5);
+	} else if (size == 2) {
+		b[4] = (l>>8)&0xff;
+		b[5] = (l)&0xff;
+		send(src,b,6,5);
+	} else if (size == 4) {
+		b[4] = (l>>24)&0xff;
+		b[5] = (l>>16)&0xff;
+		b[6] = (l>>8)&0xff;
+		b[7] = (l)&0xff;
+		send(src,b,8,5);
+	}
+  }
+  
+
   void handleCommand(int src, int len, byte command[]) {
     byte b[10];
     byte cls = command[0];
@@ -541,35 +594,7 @@ public:
 		}
 
         if (cmd == SENSOR_MULTILEVEL_GET) {
-			float v=sensorValue[i];
-			b[0] = COMMAND_CLASS_SENSOR_MULTILEVEL;
-			b[1] = SENSOR_MULTILEVEL_REPORT;
-			b[2] = sensorType[i];
-			for(byte j=0;j<sensorPrecision[i];j++) {
-				v = v * 10;
-			}
-			long l = v;
-			byte size=1;
-			if (l >= (1L<<15))
-				size = 4;
-			else if (l >= (1L<<7))
-				size = 2;
-
-			b[3] = (sensorPrecision[i]<< 5) | (sensorScale[i]<<3) | size;
-			if (size == 1) {
-				b[4] = l&0xff;
-            	send(src,b,5,5);
-			} else if (size == 2) {
-				b[4] = (l>>8)&0xff;
-				b[5] = (l)&0xff;
-            	send(src,b,6,5);
-			} else if (size == 4) {
-				b[4] = (l>>24)&0xff;
-				b[5] = (l>>16)&0xff;
-				b[6] = (l>>8)&0xff;
-				b[7] = (l)&0xff;
-            	send(src,b,8,5);
-			}
+			sendSensorReport(src, 1);
         }
     } else if (cls == COMMAND_CLASS_SENSOR_BINARY) {
 		if (hasSensorBinary==false) return;
@@ -579,7 +604,29 @@ public:
             b[2] = g_basic_level? 0xff:0;
             send(src,b,3,5);
         }
-    }
+    } else if (cls == COMMAND_CLASS_CONFIGURATION) {
+		if (cmd == CONFIGURATION_GET) {
+			Serial.print("confNum=");Serial.print(confNum);Serial.print(" command[2]=");Serial.println(command[2]);
+			if (command[2] > confNum) return;
+			b[0] = cls;
+			b[1] = CONFIGURATION_REPORT;
+			b[2] = command[2];
+			b[3] = 1;
+			b[4] = EEPROM.read(EEPROM_CONF+command[2]);
+			send(src,b,5,5);
+		} else if (cmd == CONFIGURATION_SET) {
+			int size = command[3]&0x7;
+			if (command[2] > confNum) return;
+			byte v;
+			if (size == 1)
+				v = command[4];
+			else if (size == 2) 
+				v = command[5];
+			else
+				v = command[7];
+			EEPROM.write(EEPROM_CONF+command[2], v);
+		}
+	}
   }
 };
 

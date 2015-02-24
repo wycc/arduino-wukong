@@ -9,10 +9,17 @@ void setup()
     zwave.enableAssociation();
     pinMode(5,INPUT);
     digitalWrite(5, HIGH);
+    digitalWrite(4, HIGH);
 }
 
 void loop() 
 {
+    if (digitalRead(4) == 0) {
+      while(digitalRead(4)==0);
+      delay(100);
+      zwave.learn(1);
+    }
+    //Serial.println(digitalRead(4));
     zwave.mainloop();
     zwave.updateBinarySensor(digitalRead(5));
 }
