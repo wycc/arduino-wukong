@@ -1,9 +1,10 @@
 #include <EEPROM.h>
 #include <ZWaveSlave.h>
+#include <avr/wdt.h>
 ZWaveSlave zwave;
 
 int max_data=0;
-int start_time=0;
+long start_time=0;
 #define NONE 0
 #define SHORT 1
 #define LONG 2
@@ -19,23 +20,59 @@ byte btnact = NONE;
 byte state = IDLE;
 byte average_data=0;
 byte threshold = 0;
+long next_update_time=0;
+byte seq=10;
+void simple_av_hanlder(byte v)
+{
+    byte b[10];
+    
+    b[0] = 0x94;
+    b[1] = 1;
+    b[2] = seq++;
+    b[3] = 1;
+    b[4] = 0;
+    b[5] = 0;
+    b[6] = 0;
+    b[7] = 39;
+    if ((average_data >= threshold) && (v == 0)) {
+      zwave.send(1,b,8,5);
+    } else if ((average_data < threshold)&& (v == 0xff)) {
+      zwave.send(zwave.configurations[4],b,8,5);
+    }
+}
 
 void setup()
 {
     Serial.begin(115200);
-    zwave.init(GENERIC_TYPE_SENSOR_BINARY,0);
     zwave.enableBinarySensor();
     zwave.enableAssociation();
+    zwave.enableConfiguration(4);
+    zwave.enableMeter(2);
+    zwave.setBasicHandler(simple_av_hanlder);
+    zwave.init(GENERIC_TYPE_SENSOR_BINARY,0);
+    pinMode(4,INPUT);
+    digitalWrite(4, HIGH);
     pinMode(5,INPUT);
     digitalWrite(5, HIGH);
     pinMode(13,OUTPUT);
     digitalWrite(13,LOW);
-    threshold = (EEPROM.read(0) + EEPROM.read(1))/2;
+    Serial.println("start");
+    Serial.println("start");
+    Serial.println("start");
+    Serial.println("start");
+    Serial.println("start");
+    wdt_enable(WDTO_1S);
 }
 
 
 void loop() 
 {
+    threshold = (zwave.configurations[0] + zwave.configurations[1])/2;
+    if (digitalRead(4)==0) {
+      while(digitalRead(4)==0);
+      delay(100);
+      zwave.learn(1);
+    }
     //Serial.println(digitalRead(5));
     if (digitalRead(5) == 0) {
       long s = millis();
@@ -120,8 +157,16 @@ void loop()
     }
     if (start_time + 100 < millis()) {
       average_data = average_data/2 + max_data;
+      zwave.updateMeter(average_data);
+      //Serial.print("meter=");
+      //Serial.println(average_data);
+      wdt_reset();
       max_data = 0;
       start_time = millis();
+      if (millis() > next_update_time) {
+        next_update_time = millis() + 1000;
+        zwave.updateConfiguration(3,average_data);
+      }
       if (average_data > threshold) {
         zwave.updateBinarySensor(1);
       } else {
