@@ -16,7 +16,13 @@ boolean g_sensor_state=false;
 #define APPLICATIONSLAVEUPDATE    0x49
 
 
+#define COMMAND_CLASS_METER 0x32
+#define METER_GET 1
+#define METER_REPORT 2
 
+#define COMMAND_CLASS_MANUFACTURE 0x72
+#define MANUFACTURE_GET 4
+#define MANUFACTURE_REPORT 5
 
 #define COMMAND_CLASS_BASIC 0x20
 #define COMMAND_CLASS_CONFIGURATION 0x70
@@ -65,7 +71,14 @@ boolean g_sensor_state=false;
 #define ST_DATA      6
 #define ST_CRC       7
 #define ST_DONE      8
+#ifndef MAX_VALUE
 #define MAX_VALUE 4
+#endif
+
+#ifndef MAX_CONF
+#define MAX_CONF 10
+#endif
+
 class ZWaveSlave {
 private:  
   byte seq;          // Sequence number which is used to match the callback function
@@ -92,7 +105,14 @@ private:
   byte sensorScale[MAX_VALUE];
   float sensorValue[MAX_VALUE];
   byte confNum;
+  bool hasMeter;
+  byte meterType;
+  byte meterValue;
+  byte vendorID1,vendorID2;
+  byte productID1,productID2;
+
 public:
+  byte configurations[MAX_CONF];
   ZWaveSlave() {
     Serial2.begin(115200);
     Serial2.write(6);
@@ -112,6 +132,10 @@ public:
 	hasSensorBinary = false;
 	hasAssociation = false;
 	confNum=0;
+	vendorID1 = 0x01;
+	vendorID2 = 0x62;
+	productID1 = 0x30;
+	productID2 = 0;
   }
   void init(byte g,byte s) {
 	generic = g;
@@ -136,9 +160,18 @@ public:
   void enableBinarySensor() {
   	hasSensorBinary = true;
   }
+  void setBasicHandler(void (*handler)(byte v)) {
+	  switch_binary_handler = handler;
+  }
   void enableConfiguration(byte num) {
-	if (num >= 0 && num < 32)
+	if (num >= 0 && num < 32) {
+		byte n;
+
 	  	confNum = num;
+		for(n=0;n<confNum;n++) {
+			configurations[n] = EEPROM.read(EEPROM_CONF+n);
+		}
+	}
   }
   void enableAssociation() {
   	hasAssociation = true;
@@ -152,6 +185,13 @@ public:
 		sensorScale[i] = 0;
 		sensorValue[i] = 0;
 	}
+  }
+  void enableMeter(byte type) {
+  	hasMeter = true;
+	meterType = type;
+  }
+  void updateMeter(byte value) {
+	meterValue = value;
   }
   /*
   void checkSensor() {
@@ -203,6 +243,16 @@ public:
       send(src,b,3,5);
 #endif
 	}
+  }
+  void updateManufacture(byte vid1, byte vid2, byte pid1, byte pid2) {
+	  vendorID1 = vid1;
+	  vendorID2 = vid2;
+	  productID1 = pid1;
+	  productID2 = pid2;
+  }
+  void updateConfiguration(byte n, byte value) {
+	  if (n <= confNum)
+		  configurations[n-1] = value;
   }
   // Main event loop of the ZWave SerialAPI
   boolean mainloop() {
@@ -458,6 +508,8 @@ public:
 	    b[ptr++] = COMMAND_CLASS_ASSOCIATION;
 	if (hasSensorMultilevel)
 	    b[ptr++] = COMMAND_CLASS_SENSOR_MULTILEVEL;
+	if (hasMeter)
+	    b[ptr++] = COMMAND_CLASS_METER;
 	if (confNum)
 	    b[ptr++] = COMMAND_CLASS_CONFIGURATION;
 	b[7] = ptr-8;
@@ -612,7 +664,7 @@ public:
 			b[1] = CONFIGURATION_REPORT;
 			b[2] = command[2];
 			b[3] = 1;
-			b[4] = EEPROM.read(EEPROM_CONF+command[2]);
+			b[4] = configurations[command[2]-1];
 			send(src,b,5,5);
 		} else if (cmd == CONFIGURATION_SET) {
 			int size = command[3]&0x7;
@@ -624,7 +676,29 @@ public:
 				v = command[5];
 			else
 				v = command[7];
-			EEPROM.write(EEPROM_CONF+command[2], v);
+			EEPROM.write(EEPROM_CONF+command[2]-1, v);
+			configurations[command[2]-1] = v;
+		}
+	} else if (cls == COMMAND_CLASS_METER) {
+		if (cmd == METER_GET) {
+			b[0] = cls;
+			b[1] = METER_REPORT;
+			b[2] = 1;
+			b[3] = (meterType<<3) | 1;
+			b[4] = meterValue;
+			send(src,b,5,5);
+		}
+	} else if (cls == COMMAND_CLASS_MANUFACTURE) {
+		if (cmd == MANUFACTURE_GET) {
+			b[0] = cls;
+			b[1] = MANUFACTURE_REPORT;
+			b[2] = vendorID1;
+			b[3] = vendorID2;
+			b[4] = 0;
+			b[5] = 0;
+			b[6] = productID1;
+			b[7] = productID2;
+			send(src,b,8,5);
 		}
 	}
   }
