@@ -19,7 +19,7 @@ long led_time=0;
 long learn_time=0;
 byte btnact = NONE;
 byte state = IDLE;
-byte average_data=0;
+unsigned long average_data=0;
 byte threshold = 0;
 long next_update_time=0;
 byte seq=10;
@@ -57,11 +57,26 @@ void setup()
     digitalWrite(5, HIGH);
     pinMode(13,OUTPUT);
     digitalWrite(13,LOW);
+    DDRJ |= (1<<4);
+    PORTJ |= (1<<4);
+    DDRA |= (1<<4);
+    PORTA &= ~(1<<4);
     Serial.println("start");
     Serial.println("start");
     Serial.println("start");
     Serial.println("start");
     Serial.println("start");
+    byte i;
+    //setup1();
+    /*
+    for(i=0;i<7;i++) {
+      digitalWrite(13,HIGH);
+      delay(500);
+      digitalWrite(13,LOW);
+      delay(500);
+    }
+    */
+    Serial.println("done");
     wdt_enable(WDTO_1S);
 }
 
@@ -73,6 +88,7 @@ void loop()
     if (learn_timeout && (learn_timeout < millis())) {
       learn_timeout = 0;
       zwave.learn(0);
+      digitalWrite(13,LOW);
       Serial.println("learn off");
     }
     if (digitalRead(4) == 0) {
@@ -80,7 +96,7 @@ void loop()
       Serial.println("press");
       
       while(digitalRead(4)==0) {
-        //Serial.println("hold");
+        Serial.println("hold");
         wdt_reset();
       }
       
@@ -108,6 +124,7 @@ void loop()
       if (btnact == SHORT) {
         btnact = NONE;
         Serial.println("learn");
+        digitalWrite(13,HIGH);
         zwave.learn(1);
         learn_timeout = millis()+1000;
       } else if (btnact == LONG) {
@@ -163,22 +180,24 @@ void loop()
       start_time = millis();
     }
     //long s = micros();
-    int v = abs(analogRead(13)-512);
+    int v = analogRead(13);
     //Serial.println(micros()-s);
 #if 0
     if (max_data < v) {
       max_data = v;
     }
 #else    
-    max_data = max_data + v;
-    max_count = max_count+1;
+    if (v >= 512) {
+      max_data = max_data + abs(v-512);
+      max_count = max_count+1;
+    }
 #endif
     wdt_reset();
 
     if (start_time + 1000 < millis()) {
       int w;
       average_data = average_data/2 + max_data/max_count;
-      w = average_data*19/13;
+      w = average_data*average_data*1.34/1000+average_data*1.186+2.54;
       zwave.updateMeter(w);
       Serial.print("m=");
       Serial.println(w);
@@ -197,3 +216,5 @@ void loop()
     }
     zwave.mainloop();
 }
+
+
