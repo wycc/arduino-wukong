@@ -196,9 +196,14 @@ void loop()
 
     if (start_time + 1000 < millis()) {
       int w;
-      average_data = average_data/2 + max_data/max_count;
-      w = average_data*average_data*1.34/1000+average_data*1.186+2.54;
+      if (max_count) {
+        average_data = average_data/2 + max_data/max_count;
+        w = average_data*average_data*1.34/1000+average_data*1.186+2.54;
+      } else {
+        w = 0;
+      }
       zwave.updateMeter(w);
+      
       Serial.print("m=");
       Serial.println(w);
       max_data = 0;
