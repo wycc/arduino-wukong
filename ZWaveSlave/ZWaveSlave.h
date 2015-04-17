@@ -24,6 +24,13 @@ boolean g_sensor_state=false;
 #define SWITCH_MULTILEVEL_START 4
 #define SWITCH_MULTILEVEL_STOP 5
 
+#define COMMAND_CLASS_METER 0x32
+#define METER_GET 1
+#define METER_REPORT 2
+
+#define COMMAND_CLASS_MANUFACTURE 0x72
+#define MANUFACTURE_GET 4
+#define MANUFACTURE_REPORT 5
 
 #define COMMAND_CLASS_BASIC 0x20
 #define COMMAND_CLASS_CONFIGURATION 0x70
@@ -118,6 +125,12 @@ public:
   byte multilevelswitchlevel[MAX_DIMMER];
   byte multilevelswitch[MAX_DIMMER];
   byte multilevelstep[MAX_DIMMER];
+  bool hasMeter;
+  byte meterType;
+  byte meterValue;
+  byte vendorID1,vendorID2;
+  byte productID1,productID2;
+
   byte configurations[MAX_CONF];
   ZWaveSlave() {
     Serial2.begin(115200);
@@ -141,6 +154,10 @@ public:
 	hasSensorMultilevel=false;
 	numDimmer = 0;
 	confNum=0;
+	vendorID1 = 0x01;
+	vendorID2 = 0x62;
+	productID1 = 0x30;
+	productID2 = 0;
   }
   void init(byte g,byte s) {
 	generic = g;
@@ -205,6 +222,13 @@ public:
 		sensorValue[i] = 0;
 	}
   }
+  void enableMeter(byte type) {
+  	hasMeter = true;
+	meterType = type;
+  }
+  void updateMeter(byte value) {
+	meterValue = value;
+  }
   /*
   void checkSensor() {
     boolean s = digitalRead(SENSOR_PORT);
@@ -258,6 +282,12 @@ public:
       send(src,b,3,5);
 #endif
 	}
+  }
+  void updateManufacture(byte vid1, byte vid2, byte pid1, byte pid2) {
+	  vendorID1 = vid1;
+	  vendorID2 = vid2;
+	  productID1 = pid1;
+	  productID2 = pid2;
   }
   void updateConfiguration(byte n, byte value) {
 	  if (n <= confNum)
@@ -517,6 +547,8 @@ public:
 	    b[ptr++] = COMMAND_CLASS_ASSOCIATION;
 	if (hasSensorMultilevel)
 	    b[ptr++] = COMMAND_CLASS_SENSOR_MULTILEVEL;
+	if (hasMeter)
+	    b[ptr++] = COMMAND_CLASS_METER;
 	if (confNum)
 	    b[ptr++] = COMMAND_CLASS_CONFIGURATION;
 	b[7] = ptr-8;
@@ -705,6 +737,27 @@ public:
 				v = command[7];
 			EEPROM.write(EEPROM_CONF+command[2]-1, v);
 			configurations[command[2]-1] = v;
+		}
+	} else if (cls == COMMAND_CLASS_METER) {
+		if (cmd == METER_GET) {
+			b[0] = cls;
+			b[1] = METER_REPORT;
+			b[2] = 1;
+			b[3] = (meterType<<3) | 1;
+			b[4] = meterValue;
+			send(src,b,5,5);
+		}
+	} else if (cls == COMMAND_CLASS_MANUFACTURE) {
+		if (cmd == MANUFACTURE_GET) {
+			b[0] = cls;
+			b[1] = MANUFACTURE_REPORT;
+			b[2] = vendorID1;
+			b[3] = vendorID2;
+			b[4] = 0;
+			b[5] = 0;
+			b[6] = productID1;
+			b[7] = productID2;
+			send(src,b,8,5);
 		}
 	}
   }

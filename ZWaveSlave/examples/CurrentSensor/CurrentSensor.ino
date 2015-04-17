@@ -1,9 +1,11 @@
 #include <EEPROM.h>
 #include <ZWaveSlave.h>
+#include <avr/wdt.h>
 ZWaveSlave zwave;
 
-int max_data=0;
-int start_time=0;
+unsigned long max_data=0;
+unsigned long max_count = 0;
+long start_time=0;
 #define NONE 0
 #define SHORT 1
 #define LONG 2
@@ -17,51 +19,114 @@ long led_time=0;
 long learn_time=0;
 byte btnact = NONE;
 byte state = IDLE;
-byte average_data=0;
+unsigned long average_data=0;
 byte threshold = 0;
+long next_update_time=0;
+byte seq=10;
+void simple_av_hanlder(byte v)
+{
+    byte b[10];
+    
+    b[0] = 0x94;
+    b[1] = 1;
+    b[2] = seq++;
+    b[3] = 1;
+    b[4] = 0;
+    b[5] = 0;
+    b[6] = 0;
+    b[7] = 39;
+    if ((average_data >= threshold) && (v == 0)) {
+      zwave.send(1,b,8,5);
+    } else if ((average_data < threshold)&& (v == 0xff)) {
+      zwave.send(zwave.configurations[4],b,8,5);
+    }
+}
 
 void setup()
 {
     Serial.begin(115200);
-    zwave.init(GENERIC_TYPE_SENSOR_BINARY,0);
     zwave.enableBinarySensor();
     zwave.enableAssociation();
+    zwave.enableConfiguration(4);
+    zwave.enableMeter(2);
+    zwave.setBasicHandler(simple_av_hanlder);
+    zwave.init(GENERIC_TYPE_SENSOR_BINARY,0);
+    pinMode(4,INPUT);
+    digitalWrite(4, HIGH);
     pinMode(5,INPUT);
     digitalWrite(5, HIGH);
     pinMode(13,OUTPUT);
     digitalWrite(13,LOW);
-    threshold = (EEPROM.read(0) + EEPROM.read(1))/2;
+    DDRJ |= (1<<4);
+    PORTJ |= (1<<4);
+    DDRA |= (1<<4);
+    PORTA &= ~(1<<4);
+    Serial.println("start");
+    Serial.println("start");
+    Serial.println("start");
+    Serial.println("start");
+    Serial.println("start");
+    byte i;
+    //setup1();
+    /*
+    for(i=0;i<7;i++) {
+      digitalWrite(13,HIGH);
+      delay(500);
+      digitalWrite(13,LOW);
+      delay(500);
+    }
+    */
+    Serial.println("done");
+    wdt_enable(WDTO_1S);
 }
 
+unsigned long learn_timeout = 0;
 
 void loop() 
 {
-    //Serial.println(digitalRead(5));
-    if (digitalRead(5) == 0) {
+    threshold = (zwave.configurations[0] + zwave.configurations[1])/2;
+    if (learn_timeout && (learn_timeout < millis())) {
+      learn_timeout = 0;
+      zwave.learn(0);
+      digitalWrite(13,LOW);
+      Serial.println("learn off");
+    }
+    if (digitalRead(4) == 0) {
       long s = millis();
-      while(digitalRead(5)==0);
+      Serial.println("press");
+      
+      while(digitalRead(4)==0) {
+        Serial.println("hold");
+        wdt_reset();
+      }
+      
+      Serial.println("click");
       if (millis() -s < 100) {
       } else if (millis() - s < 3000) {
+        Serial.println("short click");
         btnact = SHORT;
       } else if (millis() - s > 10000) {
         EEPROM.write(0,10);
         EEPROM.write(1,10);
         byte i;
-        
+        Serial.println("Reset");
+
         for(i=0;i<10;i++) {
           digitalWrite(13,digitalRead(13));
           delay(500);
         }
+        Serial.println("Done");
       } else {
         btnact = LONG;
       }
     }
     if (state == IDLE) {
       if (btnact == SHORT) {
-        delay(100);
-        zwave.learn(1);
         btnact = NONE;
         Serial.println("learn");
+        digitalWrite(13,HIGH);
+        zwave.learn(1);
+        learn_timeout = millis()+1000;
       } else if (btnact == LONG) {
         state = LEARN;
         led_time = millis();
@@ -114,14 +179,40 @@ void loop()
     if (start_time == 0) {
       start_time = millis();
     }
-    int v = abs(analogRead(13)-512);
+    //long s = micros();
+    int v = analogRead(13);
+    //Serial.println(micros()-s);
+#if 0
     if (max_data < v) {
       max_data = v;
     }
-    if (start_time + 100 < millis()) {
-      average_data = average_data/2 + max_data;
+#else    
+    if (v >= 512) {
+      max_data = max_data + abs(v-512);
+      max_count = max_count+1;
+    }
+#endif
+    wdt_reset();
+
+    if (start_time + 1000 < millis()) {
+      int w;
+      if (max_count) {
+        average_data = average_data/2 + max_data/max_count;
+        w = average_data*average_data*1.34/1000+average_data*1.186+2.54;
+      } else {
+        w = 0;
+      }
+      zwave.updateMeter(w);
+      
+      Serial.print("m=");
+      Serial.println(w);
       max_data = 0;
+      max_count = 0;
       start_time = millis();
+      if (millis() > next_update_time) {
+        next_update_time = millis() + 1000;
+        zwave.updateConfiguration(3,w);
+      }
       if (average_data > threshold) {
         zwave.updateBinarySensor(1);
       } else {
@@ -130,3 +221,5 @@ void loop()
     }
     zwave.mainloop();
 }
+
+
