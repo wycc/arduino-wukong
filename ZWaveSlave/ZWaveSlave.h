@@ -7,6 +7,8 @@
 /*****************************************/
 #define EEPROM_GROUP1 10
 #define EEPROM_CONF 20
+#define EEPROM_SWITCH_MULTILEVEL 30
+#define EEPROM_SWITCH_MULTILEVEL_LEVEL 40
 #define SENSOR_PORT 5
 
 boolean g_sensor_state=false;
@@ -15,7 +17,12 @@ boolean g_sensor_state=false;
 #define APPLICATIONCOMMANDHANDLER 0x04
 #define APPLICATIONSLAVEUPDATE    0x49
 
-
+#define COMMAND_CLASS_SWITCH_MULTILEVEL 0x26
+#define SWITCH_MULTILEVEL_GET 2
+#define SWITCH_MULTILEVEL_SET 1
+#define SWITCH_MULTILEVEL_REPORT 3
+#define SWITCH_MULTILEVEL_START 4
+#define SWITCH_MULTILEVEL_STOP 5
 
 
 #define COMMAND_CLASS_BASIC 0x20
@@ -33,6 +40,8 @@ boolean g_sensor_state=false;
 #define ASSOCIATION_REPORT 3
 #define ASSOCIATION_SET 1
 
+#define GENERIC_TYPE_SWITCH_BINARY   0x10
+#define GENERIC_TYPE_SWITCH_MULTILEVEL  0x11
 #define GENERIC_TYPE_SENSOR_BINARY   0x20
 #define COMMAND_CLASS_SENSOR_BINARY  0x30
 #define SENSOR_BINARY_GET            0x02
@@ -65,7 +74,18 @@ boolean g_sensor_state=false;
 #define ST_DATA      6
 #define ST_CRC       7
 #define ST_DONE      8
+#ifndef MAX_VALUE
 #define MAX_VALUE 4
+#endif
+
+#ifndef MAX_CONF
+#define MAX_CONF 10
+#endif
+
+#ifndef MAX_DIMMER
+#define MAX_DIMMER 4
+#endif
+
 class ZWaveSlave {
 private:  
   byte seq;          // Sequence number which is used to match the callback function
@@ -85,6 +105,7 @@ private:
   bool hasSensorBinary;
   bool hasSensorMultilevel;
   bool hasAssociation;
+  bool hasMultilevelSwitch;
   byte generic,specific;
   byte sensorNum;
   byte sensorType[MAX_VALUE];
@@ -92,7 +113,12 @@ private:
   byte sensorScale[MAX_VALUE];
   float sensorValue[MAX_VALUE];
   byte confNum;
+  byte numDimmer;
 public:
+  byte multilevelswitchlevel[MAX_DIMMER];
+  byte multilevelswitch[MAX_DIMMER];
+  byte multilevelstep[MAX_DIMMER];
+  byte configurations[MAX_CONF];
   ZWaveSlave() {
     Serial2.begin(115200);
     Serial2.write(6);
@@ -111,6 +137,9 @@ public:
 	learn_stop_time = 0;
 	hasSensorBinary = false;
 	hasAssociation = false;
+	hasMultilevelSwitch = false;
+	hasSensorMultilevel=false;
+	numDimmer = 0;
 	confNum=0;
   }
   void init(byte g,byte s) {
@@ -136,9 +165,32 @@ public:
   void enableBinarySensor() {
   	hasSensorBinary = true;
   }
+  void setBasicHandler(void (*handler)(byte v)) {
+	  switch_binary_handler = handler;
+  }
+  void enableMultilevelSwitch(byte ins) {
+	byte i;
+	hasMultilevelSwitch = true;
+	for(i=0;i<ins;i++) {
+#ifdef EEPROM_h
+		multilevelswitch[i] = EEPROM.read(EEPROM_SWITCH_MULTILEVEL+i);
+		multilevelswitchlevel[i] = EEPROM.read(EEPROM_SWITCH_MULTILEVEL_LEVEL+i);
+#else
+		multilevelswitch[i] = 0;
+		multilevelswitchlevel[i] = 0;
+#endif
+		multilevelstep[i] = 0;
+	}
+  }
   void enableConfiguration(byte num) {
-	if (num >= 0 && num < 32)
+	if (num >= 0 && num < 32) {
+		byte n;
+
 	  	confNum = num;
+		for(n=0;n<confNum;n++) {
+			configurations[n] = EEPROM.read(EEPROM_CONF+n);
+		}
+	}
   }
   void enableAssociation() {
   	hasAssociation = true;
@@ -190,6 +242,9 @@ public:
   	if (i < sensorNum)
 		sensorValue[i] = v;
   }
+  void updateBinarySwitch(bool v) {
+	  g_basic_level = v;
+  }
   void updateBinarySensor(bool v) {
 	byte newv = v?255:0;
     if (newv != g_basic_level) {
@@ -203,6 +258,10 @@ public:
       send(src,b,3,5);
 #endif
 	}
+  }
+  void updateConfiguration(byte n, byte value) {
+	  if (n <= confNum)
+		  configurations[n-1] = value;
   }
   // Main event loop of the ZWave SerialAPI
   boolean mainloop() {
@@ -573,6 +632,26 @@ public:
 #endif			
           break;
       }
+    } else if (cls == COMMAND_CLASS_SWITCH_MULTILEVEL) {
+	    if (hasMultilevelSwitch == false) return;
+	    if (cmd == SWITCH_MULTILEVEL_GET) {
+		    b[0] = COMMAND_CLASS_SWITCH_MULTILEVEL;
+		    b[1] = SWITCH_MULTILEVEL_REPORT;
+		    b[2] = (multilevelswitch[0]==255)? multilevelswitchlevel[0]:multilevelswitch[0];
+		    send(src,b,3,5);
+	    } else if (cmd == SWITCH_MULTILEVEL_SET) {
+		    multilevelswitch[0] = command[2];
+			if ((multilevelswitch[0] != 0) && (multilevelswitch[0] != 255))
+				multilevelswitchlevel[0] = multilevelswitch[0];
+#ifdef EEPROM_h		
+            EEPROM.write(EEPROM_SWITCH_MULTILEVEL,multilevelswitch[0]);
+            EEPROM.write(EEPROM_SWITCH_MULTILEVEL_LEVEL,multilevelswitchlevel[0]);
+#endif			
+	    } else if (cmd == SWITCH_MULTILEVEL_START) {
+			multilevelstep[0] = command[2];
+		} else if (cmd == SWITCH_MULTILEVEL_STOP) {
+			multilevelstep[0] = 0;
+		}
     } else if (cls == COMMAND_CLASS_SENSOR_MULTILEVEL) {
 		if (hasSensorMultilevel==false) return;
 		byte i=0;
@@ -612,7 +691,7 @@ public:
 			b[1] = CONFIGURATION_REPORT;
 			b[2] = command[2];
 			b[3] = 1;
-			b[4] = EEPROM.read(EEPROM_CONF+command[2]);
+			b[4] = configurations[command[2]-1];
 			send(src,b,5,5);
 		} else if (cmd == CONFIGURATION_SET) {
 			int size = command[3]&0x7;
@@ -624,7 +703,8 @@ public:
 				v = command[5];
 			else
 				v = command[7];
-			EEPROM.write(EEPROM_CONF+command[2], v);
+			EEPROM.write(EEPROM_CONF+command[2]-1, v);
+			configurations[command[2]-1] = v;
 		}
 	}
   }
