@@ -5,6 +5,18 @@
 /*****************************************/
 //     Hardware specific definition
 /*****************************************/
+
+#if defined(USE_UART1)
+#define SERIAL Serial1
+#else
+
+#if defined(USE_UART2)
+#define SERIAL Serial2
+#else
+#error "Please define USE_UART1 or USE_UART2"
+#endif
+#endif
+
 #define EEPROM_GROUP1 10
 #define EEPROM_CONF 20
 #define EEPROM_SWITCH_MULTILEVEL 30
@@ -121,6 +133,7 @@ private:
   float sensorValue[MAX_VALUE];
   byte confNum;
   byte numDimmer;
+  bool debug;
 public:
   byte multilevelswitchlevel[MAX_DIMMER];
   byte multilevelswitch[MAX_DIMMER];
@@ -133,13 +146,20 @@ public:
 
   byte configurations[MAX_CONF];
   ZWaveSlave() {
-    Serial2.begin(115200);
-    Serial2.write(6);
+	byte i;
+	Serial.begin(115200);
+    SERIAL.begin(115200);
+    SERIAL.write(6);
     //version();
-    for(i=0;i<100;i++)
-      mainloop();
-    randomSeed(analogRead(0));
-    seq = random(255);
+	//mainloop();
+    for(i=0;i<30;i++) {
+       mainloop();
+	}
+    for(i=0;i<30;i++) {
+       mainloop();
+	}
+    //randomSeed(analogRead(0));
+    seq = 0;
     state = ST_SOF;
     expire = 0;
     nodeinfo=NULL;
@@ -158,6 +178,7 @@ public:
 	vendorID2 = 0x62;
 	productID1 = 0x30;
 	productID2 = 0;
+	debug = false;
   }
   void init(byte g,byte s) {
 	generic = g;
@@ -170,6 +191,8 @@ public:
 	PORTA |= (1<<1);
     init_nodeinfo();
   }
+  void enableDebug() {debug = true;}
+  void disableDebug() {debug = false;}
   int getType() {
     return type;
   }
@@ -315,12 +338,14 @@ public:
 		    learn_stop_time = 0;
 	    }
 	}
-    if (Serial2.available()) {
+    if (SERIAL.available()) {
       expire = now + 1000;
-      byte c = Serial2.read();
-      char buf[128];
-      snprintf(buf,128,"-> c=%x state=%d\n", c, state);
-      //Serial.write(buf);
+      byte c = SERIAL.read();
+	  if (debug) {
+      	char buf[128];
+	    snprintf(buf,128,"-> c=%x state=%d\n", c, state);
+	    Serial.write(buf);
+	  }
       if (state == ST_SOF) {
         if (c == 1) {
           state = ST_LEN;
@@ -350,7 +375,7 @@ public:
         }
       } 
       else if (state == ST_CRC) {
-        Serial2.write(6);
+        SERIAL.write(6);
         state = ST_SOF;
         if (f!=NULL) f(payload,i);
         if (type == REQUEST) {
@@ -400,14 +425,14 @@ public:
     buf[l+7] = seq;
 
     crc = 0xff;
-    Serial2.write(buf[0]);
+    SERIAL.write(buf[0]);
     for(k=0;k<l+7;k++) {
-      Serial2.write(buf[k+1]);
+      SERIAL.write(buf[k+1]);
       //Serial.println(buf[k+1]);
       crc = crc ^ buf[k+1];
     }
     seq++;
-    Serial2.write(crc);
+    SERIAL.write(crc);
     expire = millis()+1000;
   }
 
@@ -425,7 +450,7 @@ public:
     b[6] = 0xff^5^0^t^m^seq;
     seq++;
     for(k=0;k<7;k++)
-      Serial2.write(b[k]);
+      SERIAL.write(b[k]);
   }
 
   // Reset the ZWave module to the factory default value. This must be called carefully since it will make
@@ -442,7 +467,7 @@ public:
     b[5] = 0xff^4^0^0x42^seq;
     seq++;
     for(k=0;k<6;k++)
-      Serial2.write(b[k]);
+      SERIAL.write(b[k]);
 
   }
   void version() {
@@ -457,7 +482,7 @@ public:
     b[5] = 0xff^4^0^0x15^seq;
     seq++;
     for(k=0;k<6;k++)
-      Serial2.write(b[k]);
+      SERIAL.write(b[k]);
 
   }
 
@@ -481,7 +506,7 @@ public:
     b[6] = 0xff^5^0^0x50^onoff^seq;
     seq++;
     for(k=0;k<7;k++)
-      Serial2.write(b[k]);
+      SERIAL.write(b[k]);
 
   }
   void sendNodeInfo() {
@@ -498,7 +523,7 @@ public:
     b[7] = 0xff^6^0^0x12^0xff^1^seq;
     seq++;
     for(k=0;k<8;k++)
-      Serial2.write(b[k]);
+      SERIAL.write(b[k]);
   }
 
   // Start inclusion procedure to add a new node
@@ -558,9 +583,9 @@ public:
 		b[ptr] ^= b[i];
 	}
     for(byte k=0;k<ptr+1;k++)
-      Serial2.write(b[k]);
-	//Serial.print("ptr=");
-	//Serial.println(ptr);
+      SERIAL.write(b[k]);
+	Serial.print("ptr=");
+	Serial.println(ptr);
   }
   
   void sendSensorReport(byte src,byte ch) {
