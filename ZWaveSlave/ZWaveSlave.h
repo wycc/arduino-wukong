@@ -29,6 +29,8 @@ boolean g_sensor_state=false;
 #define APPLICATIONCOMMANDHANDLER 0x04
 #define APPLICATIONSLAVEUPDATE    0x49
 
+#define COMMAND_CLASS_SWITCH_BINARY 0x25
+
 #define COMMAND_CLASS_SWITCH_MULTILEVEL 0x26
 #define SWITCH_MULTILEVEL_GET 2
 #define SWITCH_MULTILEVEL_SET 1
@@ -62,6 +64,7 @@ boolean g_sensor_state=false;
 #define GENERIC_TYPE_SWITCH_BINARY   0x10
 #define GENERIC_TYPE_SWITCH_MULTILEVEL  0x11
 #define GENERIC_TYPE_SENSOR_BINARY   0x20
+#define GENERIC_TYPE_SENSOR_MULTILEVEL   0x21
 #define COMMAND_CLASS_SENSOR_BINARY  0x30
 #define SENSOR_BINARY_GET            0x02
 #define SENSOR_BINARY_REPORT         0x03
@@ -70,6 +73,11 @@ boolean g_sensor_state=false;
 #define COMMAND_CLASS_SENSOR_MULTILEVEL 0x31
 #define SENSOR_MULTILEVEL_GET 4
 #define SENSOR_MULTILEVEL_REPORT 5
+#define SENSOR_TYPE_TEMPERATURE 1
+#define SENSOR_TYPE_HUMID 5
+#define SENSOR_TYPE_POWER C4
+#define SENSOR_SCALE_TEMPERATURE_F 0
+#define SENSOR_SCALE_TEMPERATURE_C 1
 
 #define APPLICATION_NODEINFO_NOT_LISTENING            0x00
 #define APPLICATION_NODEINFO_LISTENING                0x01
@@ -122,6 +130,7 @@ private:
   void (*switch_binary_handler)(byte v); // The callback function registered by callback
   void (*nodeinfo)(byte *payload,int len);
   bool hasSensorBinary;
+  bool hasSwitchBinary;
   bool hasSensorMultilevel;
   bool hasAssociation;
   bool hasMultilevelSwitch;
@@ -169,6 +178,7 @@ public:
 	learn_info_time = 0;
 	learn_stop_time = 0;
 	hasSensorBinary = false;
+	hasSwitchBinary = false;
 	hasAssociation = false;
 	hasMultilevelSwitch = false;
 	hasSensorMultilevel=false;
@@ -205,7 +215,13 @@ public:
   void enableBinarySensor() {
   	hasSensorBinary = true;
   }
+  void enableBinarySwitch() {
+  	hasSwitchBinary = true;
+  }
   void setBasicHandler(void (*handler)(byte v)) {
+	  switch_binary_handler = handler;
+  }
+  void setSwitchBinaryHandler(void (*handler)(byte v)) {
 	  switch_binary_handler = handler;
   }
   void enableMultilevelSwitch(byte ins) {
@@ -287,6 +303,10 @@ public:
   }
   void updateMultilevelSensor(byte i, float v) {
   	if (i < sensorNum)
+		sensorValue[i] = v;
+  }
+  void updateMultilevelSwitch(byte i, byte v) {
+  	if (i < numDimmer)
 		sensorValue[i] = v;
   }
   void updateBinarySwitch(bool v) {
@@ -566,6 +586,8 @@ public:
     b[7] = 3;
 	ptr = 8;
 	b[ptr++] = COMMAND_CLASS_BASIC;
+	if (hasSwitchBinary)
+	    b[ptr++] = COMMAND_CLASS_SWITCH_BINARY;
 	if (hasSensorBinary)
 	    b[ptr++] = COMMAND_CLASS_SENSOR_BINARY;
 	if (hasAssociation)
@@ -634,7 +656,7 @@ public:
     Serial.println(cls);
     Serial.println(cmd);
 	if (cmd_handler) cmd_handler(command,len);
-    if (cls == COMMAND_CLASS_BASIC) {
+    if (cls == COMMAND_CLASS_BASIC || cls == COMMAND_CLASS_SWITCH_BINARY) {
         switch(cmd) {
           case BASIC_SET:
               Serial.print("Receive Set command\n");
