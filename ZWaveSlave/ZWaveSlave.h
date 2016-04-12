@@ -590,6 +590,8 @@ public:
 	    b[ptr++] = COMMAND_CLASS_SWITCH_BINARY;
 	if (hasSensorBinary)
 	    b[ptr++] = COMMAND_CLASS_SENSOR_BINARY;
+	if (hasMultilevelSwitch)
+	    b[ptr++] = COMMAND_CLASS_SWITCH_MULTILEVEL;	    
 	if (hasAssociation)
 	    b[ptr++] = COMMAND_CLASS_ASSOCIATION;
 	if (hasSensorMultilevel)
