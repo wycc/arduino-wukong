@@ -5,6 +5,19 @@
 /*****************************************/
 //     Hardware specific definition
 /*****************************************/
+#ifdef MODEL_HC20
+#define USE_UART2
+#define DEBUG Serial
+#endif
+
+#ifdef MODEL_HC30
+#define USE_UART0
+#define DEBUG Serial1
+#endif
+
+#ifndef DEBUG
+#define DEBUG Serial
+#endif
 
 #if defined(USE_UART1)
 #define SERIAL Serial1
@@ -13,7 +26,11 @@
 #if defined(USE_UART2)
 #define SERIAL Serial2
 #else
+#if defined(USE_UART0)
+#define SERIAL Serial
+#else
 #error "Please define USE_UART1 or USE_UART2"
+#endif
 #endif
 #endif
 
@@ -147,7 +164,7 @@ public:
   byte configurations[MAX_CONF];
   ZWaveSlave() {
 	byte i;
-	Serial.begin(115200);
+	DEBUG.begin(115200);
     SERIAL.begin(115200);
     SERIAL.write(6);
     //version();
@@ -183,12 +200,14 @@ public:
   void init(byte g,byte s) {
 	generic = g;
 	specific = s;
+#ifdef MODEL_HC20	
     DDRK |= (1<<7);
 	PORTK &= ~(1<<7);
 	delay(100);
 	PORTK |= (1<<7);
 	DDRA &= ~(1<<1);
 	PORTA |= (1<<1);
+#endif	
     init_nodeinfo();
   }
   void enableDebug() {debug = true;}
@@ -200,7 +219,7 @@ public:
     char buf[128];
 
     snprintf(buf,64,"Status=%d Node=%d Device=%d:%d:%d\n", payload[0],payload[1],payload[3],payload[4],payload[5]);
-    Serial.write(buf);
+    DEBUG.write(buf);
   }
   void enableBinarySensor() {
   	hasSensorBinary = true;
@@ -331,7 +350,7 @@ public:
 	    if (learn_info_time && now > learn_info_time) {
 		    learn_info_time = 0;
 		    sendNodeInfo();
-			Serial.println("send info");
+			DEBUG.println("send info");
 	    }
 	    if (learn_stop_time && now > learn_stop_time) {
 		    //learn(0);
@@ -344,7 +363,7 @@ public:
 	  if (debug) {
       	char buf[128];
 	    snprintf(buf,128,"-> c=%x state=%d\n", c, state);
-	    Serial.write(buf);
+	    DEBUG.write(buf);
 	  }
       if (state == ST_SOF) {
         if (c == 1) {
@@ -412,7 +431,7 @@ public:
     byte crc;
     byte buf[24];
 
-    //Serial.write("Send\n");
+    DEBUG.write("Send\n");
     buf[0] = 1;
     buf[1] = l+7;
     buf[2] = 0;
@@ -584,8 +603,8 @@ public:
 	}
     for(byte k=0;k<ptr+1;k++)
       SERIAL.write(b[k]);
-	Serial.print("ptr=");
-	Serial.println(ptr);
+	DEBUG.print("ptr=");
+	DEBUG.println(ptr);
   }
   
   void sendSensorReport(byte src,byte ch) {
@@ -630,14 +649,14 @@ public:
     byte cmd = command[1];
     byte n;
 
-    Serial.print("Receive command\n");
-    Serial.println(cls);
-    Serial.println(cmd);
+    DEBUG.print("Receive command\n");
+    DEBUG.println(cls);
+    DEBUG.println(cmd);
 	if (cmd_handler) cmd_handler(command,len);
     if (cls == COMMAND_CLASS_BASIC) {
         switch(cmd) {
           case BASIC_SET:
-              Serial.print("Receive Set command\n");
+              DEBUG.print("Receive Set command\n");
               g_basic_level = command[2];
 			  if (switch_binary_handler)
 			  	switch_binary_handler(g_basic_level);
@@ -716,14 +735,14 @@ public:
 		if (len > 2) {
 			byte t = command[2];
 			byte scale = (command[3]>>3)&0x3;
-			Serial.print("search ");
-			Serial.print(command[3]);
-			Serial.print(" ");
-			Serial.println(scale);
+			DEBUG.print("search ");
+			DEBUG.print(command[3]);
+			DEBUG.print(" ");
+			DEBUG.println(scale);
 			for(i=0;i<sensorNum;i++) {
-				Serial.print(sensorType[i]);
-				Serial.print(' ');
-				Serial.println(sensorScale[i]);
+				DEBUG.print(sensorType[i]);
+				DEBUG.print(' ');
+				DEBUG.println(sensorScale[i]);
 				if (t == sensorType[i] && sensorScale[i] == scale ) break;
 			}
 			if (i == sensorNum) return;
@@ -742,7 +761,7 @@ public:
         }
     } else if (cls == COMMAND_CLASS_CONFIGURATION) {
 		if (cmd == CONFIGURATION_GET) {
-			Serial.print("confNum=");Serial.print(confNum);Serial.print(" command[2]=");Serial.println(command[2]);
+			DEBUG.print("confNum=");DEBUG.print(confNum);DEBUG.print(" command[2]=");DEBUG.println(command[2]);
 			if (command[2] > confNum) return;
 			b[0] = cls;
 			b[1] = CONFIGURATION_REPORT;
